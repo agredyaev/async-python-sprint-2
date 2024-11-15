@@ -1,0 +1,228 @@
+@startuml
+skinparam packageStyle rectangle
+skinparam componentStyle uml2
+skinparam classAttributeIconSize 0
+
+' Protocols
+package "Protocols" {
+    interface "TaskProtocol" as TaskP {
+        +execute(context: Context)
+        +get_state(): TaskState
+        +set_state(state: TaskState)
+        +get_id(): str
+        +get_priority(): int
+        +get_dependencies(): List[str]
+    }
+
+    interface "TaskFactoryProtocol" as TaskFactoryP {
+        +create_task(config: TaskConfig): TaskProtocol
+        +register_task_type(task_type: str, task_class: Type[TaskProtocol])
+    }
+
+    interface "ContextManagerProtocol" as ContextManagerP {
+        +create_context(pipeline_id: str): Context
+        +update_context(context: Context)
+        +get_context(task_id: str): Context
+        +cleanup_context(pipeline_id: str)
+        +merge_contexts(source: Context, target: Context)
+    }
+
+    interface "StateManagerProtocol" as StateManagerP {
+        +save_state()
+        +load_state()
+        +update_task_state(task_id: str, state: TaskState)
+        +get_task_state(task_id: str): TaskState
+        +cleanup_states(older_than: datetime)
+    }
+
+    interface "TaskPoolProtocol" as TaskPoolP {
+        +add_task(task: TaskProtocol)
+        +get_next_task(): TaskProtocol
+        +remove_task(task_id: str)
+        +get_running_tasks(): List[TaskProtocol]
+        +get_pending_tasks(): List[TaskProtocol]
+    }
+}
+
+    ' Base classes and implementations
+    abstract class "BaseTask" as BaseTask {
+        #task_id: str
+        #config: TaskConfig
+        #state: TaskState
+        #priority: int
+        #dependencies: List[str]
+        #retry_count: int
+        #max_retries: int
+        #timeout: float
+        #start_time: Optional[datetime]
+        --
+        +__init__(config: TaskConfig)
+        #_validate_config()
+        #_check_dependencies()
+        #_update_state(new_state: TaskState)
+        #{abstract} _do_execute(context: Context)
+        +execute(context: Context)
+        +get_state(): TaskState
+        +set_state(state: TaskState)
+    }
+
+
+class "FileTask" as FileTask {
+    -file_path: Path
+    -operation: FileOperation
+    --
+    +__init__(config: TaskConfig)
+    #_do_execute(context: Context)
+    -_validate_path()
+    -_handle_file_operation()
+}
+
+class "HttpTask" as HttpTask {
+    -url: str
+    -method: str
+    -headers: Dict[str, str]
+    -timeout: float
+    --
+    +__init__(config: TaskConfig)
+    #_do_execute(context: Context)
+    -_validate_url()
+    -_make_request()
+}
+
+class "TaskFactory" as TaskFactory {
+    -_task_types: Dict[str, Type[TaskProtocol]]
+    --
+    +__init__()
+    +create_task(config: TaskConfig): TaskProtocol
+    +register_task_type(task_type: str, task_class: Type[TaskProtocol])
+    -_validate_task_type(task_type: str)
+}
+
+class "ContextManager" as ContextManager {
+    -_contexts: Dict[str, Context]
+    -_lock: RLock
+    --
+    +__init__()
+    +create_context(pipeline_id: str): Context
+    +update_context(context: Context)
+    +get_context(task_id: str): Context
+    -_validate_context(context: Context)
+}
+
+class "FileStateManager" as FileStateManager {
+    -_state_file: Path
+    -_lock_file: Path
+    -_lock: RLock
+    --
+    +__init__(state_file: Path)
+    +save_state()
+    +load_state()
+    -_acquire_lock()
+    -_release_lock()
+    -_validate_state_file()
+}
+
+class "TaskPool" as TaskPool {
+    -_max_concurrent: int
+    -_running_tasks: Dict[str, TaskProtocol]
+    -_pending_tasks: PriorityQueue[TaskProtocol]
+    -_lock: RLock
+    --
+    +__init__(max_concurrent: int)
+    +add_task(task: TaskProtocol)
+    +get_next_task(): TaskProtocol
+    -_check_dependencies(task: TaskProtocol)
+    -_cleanup_completed()
+}
+
+' Main Scheduler
+class "Scheduler" as Scheduler {
+    -task_pool: TaskPoolProtocol
+    -context_manager: ContextManagerProtocol
+    -state_manager: StateManagerProtocol
+    -task_factory: TaskFactoryProtocol
+    -_is_running: bool
+    -_lock: RLock
+    --
+    +__init__()
+    +schedule_task(config: TaskConfig)
+    +schedule_pipeline(pipeline_config: PipelineConfig)
+    +run()
+    +stop()
+    -_process_task(task: TaskProtocol)
+    -_handle_task_completion(task: TaskProtocol)
+}
+
+' Models and DTOs
+package "Schemas" {
+    class "TaskConfig" as TaskConfig {
+        +task_id: str
+        +task_type: str
+        +priority: int
+        +dependencies: List[str]
+        +timeout: float
+        +max_retries: int
+        +start_time: Optional[datetime]
+        +task_specific_config: Dict
+    }
+
+    class "Context" as Context {
+        +context_id: str
+        +pipeline_id: str
+        +data: Dict[str, Any]
+        +results: Dict[str, Any]
+        +metadata: Dict[str, Any]
+        +version: int
+        +created_at: datetime
+        +updated_at: datetime
+    }
+
+    enum "TaskState" as TaskState {
+        CREATED
+        PENDING
+        RUNNING
+        COMPLETED
+        FAILED
+        RETRY_PENDING
+    }
+
+    class "PipelineConfig" as PipelineConfig {
+        +pipeline_id: str
+        +tasks: List[TaskConfig]
+        +max_parallel: int
+        +timeout: float
+    }
+}
+
+' Dependencies and relationships
+TaskP <|.. BaseTask
+BaseTask <|-- FileTask
+BaseTask <|-- HttpTask
+
+
+TaskFactoryP <|.. TaskFactory
+ContextManagerP <|.. ContextManager
+StateManagerP <|.. FileStateManager
+TaskPoolP <|.. TaskPool
+
+Scheduler o-- TaskPoolP
+Scheduler o-- ContextManagerP
+Scheduler o-- StateManagerP
+Scheduler o-- TaskFactoryP
+TaskFactoryP o-- TaskP
+TaskPoolP o-- TaskP
+
+TaskFactory ..> TaskConfig
+TaskFactory ..> BaseTask
+TaskFactory ..> FileTask
+TaskFactory ..> HttpTask
+
+BaseTask ..> Context
+BaseTask ..> TaskState
+TaskPool ..> TaskState
+
+ContextManager ..> Context
+FileStateManager ..> TaskState
+
+PipelineConfig ..> TaskConfig
+@enduml
