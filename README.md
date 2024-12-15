@@ -4,8 +4,6 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Actions status](https://github.com/agredyaev/async-python-sprint-1/actions/workflows/app-testing.yml/badge.svg)](https://github.com/agredyaev/async-python-sprint-1/actions)
 ![Pydantic](https://img.shields.io/badge/Pydantic-red?logo=pydantic&logoColor=white)
-![HTTPX](https://img.shields.io/badge/HTTPX-green?logo=httpx&logoColor=white)
-![Polars](https://img.shields.io/badge/Polars-blue?logo=polars&logoColor=white)
 [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ## Project Overview
