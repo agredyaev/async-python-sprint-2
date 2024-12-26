@@ -1,12 +1,11 @@
-# Weather Data Analysis
+# Task Scheduling System
+
 ![Python](https://img.shields.io/badge/python-3.13-blue)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Actions status](https://github.com/agredyaev/async-python-sprint-1/actions/workflows/app-testing.yml/badge.svg)](https://github.com/agredyaev/async-python-sprint-1/actions)
 ![Pydantic](https://img.shields.io/badge/Pydantic-red?logo=pydantic&logoColor=white)
 [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](https://mit-license.org/)
-
-# Task Scheduling System
 
 This project implements a flexible and efficient task scheduling system in Python. It's designed to handle various types of tasks, manage their execution, and provide a robust framework for complex task pipelines.
 
