@@ -79,11 +79,15 @@ jobs:
     - name: Install the project
       run: uv sync --all-extras --dev
 
-      # 7. Install missing stub packages
+      # 7.1 Install missing stub packages
+    - name: Install missing type third-party stubs
+      run: |
+        uv pip install types-requests
+
+      # 7.2 Install missing stub packages
     - name: Install missing type stubs
       run: |
         uv run mypy --install-types --non-interactive .
-        uv pip install types-requests
 
       # 8. Run Ruff Linter and show all errors
     - name: Run Ruff Linter
