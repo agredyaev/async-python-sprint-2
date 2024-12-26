@@ -82,7 +82,7 @@ jobs:
       # 7. Install missing stub packages
     - name: Install missing type stubs
       run: |
-        uv run mypy --install-types --non-interactive . &&\
+        uv run mypy --install-types --non-interactive .
         uv pip install types-requests
 
       # 8. Run Ruff Linter and show all errors
