@@ -50,7 +50,7 @@ class TestTaskRegistry:
 
     def test_http_task_execution(self, mocker: MockerFixture):
         config = HttpTaskConfigFactory.build(
-            url="https://example.com", method="GET", headers={"Authorization": "Bearer token"}
+            url="https://example.com", headers={"Authorization": "Bearer token"}, start_time=None
         )
         task = HttpTask(config)
 
@@ -144,7 +144,7 @@ class TestTaskRegistry:
         """Checks if the task retry logic works as expected."""
 
         max_retries = 3
-        config = HttpTaskConfigFactory.build(max_retries=max_retries)
+        config = HttpTaskConfigFactory.build(max_retries=max_retries, start_time=None)
 
         class FailingTask(BaseTask):
             def _do_execute(self, context: Context) -> Generator[None, None, None]:
