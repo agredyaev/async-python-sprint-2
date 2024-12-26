@@ -1,0 +1,16 @@
+from typing import Protocol, runtime_checkable
+
+from collections.abc import Generator
+from datetime import datetime
+from uuid import UUID
+
+from src.schemas import TaskState, TaskStateData
+
+
+@runtime_checkable
+class StateManagerProtocol(Protocol):
+    def save(self) -> Generator[None, None, None]: ...
+    def load(self) -> Generator[None, None, None]: ...
+    def update(self, task_id: UUID, state: TaskState) -> Generator[None, None, None]: ...
+    def get(self, task_id: UUID) -> Generator[TaskStateData, None, None]: ...
+    def cleanup(self, older_than: datetime) -> Generator[None, None, None]: ...

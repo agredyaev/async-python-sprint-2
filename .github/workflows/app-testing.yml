@@ -1,31 +1,105 @@
-name: build-and-test
+name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
-  build:
+  check:
+
     runs-on: ubuntu-latest
+
+    outputs:
+      has_changes: ${{ steps.check.outputs.has_changes }}
+      changed_files: ${{ steps.check.outputs.changed_files }}
+
+    steps:
+      # 1. Checkout the code from the repository
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+
+      # 2. Get a list of changed .py files
+    - name: Get changed files
+      id: changed-files
+      uses: tj-actions/changed-files@v44
+      with:
+        files: |
+          **.py
+
+      # 3. Set outputs for changed files
+    - name: Set change flag and files
+      id: check
+      run: |
+        if [ "${{ steps.changed-files.outputs.any_changed }}" == "true" ]; then
+          echo "has_changes=${{ steps.changed-files.outputs.any_changed }}" >> $GITHUB_OUTPUT
+          echo "changed_files=${{ steps.changed-files.outputs.all_changed_files }}" >> $GITHUB_OUTPUT
+        else
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+          echo "changed_files=" >> $GITHUB_OUTPUT
+        fi
+
+
+  tests:
+    needs: [check]
+    if: ${{ needs.check.outputs.has_changes == 'true' }}
+
+    runs-on: ubuntu-latest
+
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
+        python-version: ['3.12', '3.13']
+
     steps:
-    - uses: actions/checkout@v3
+      # 1. Checkout the code from the repository
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+      # 2. Rename .env.example file to .env
+    - name: Rename env file
+      run: mv .env.example .env
+
+      # 3. Set up the Python environment
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+
+      # 4. Install uv
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+
+      # 5. Install python
+    - name: Set up Python
+      run: uv python install
+
+      # 6. Install the project
+    - name: Install the project
+      run: uv sync --all-extras --dev
+
+      # 7.1 Install missing stub packages
+    - name: Install missing type third-party stubs
       run: |
-        python -m pip install --upgrade pip
-        pip install flake8 pytest
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-    - name: Lint with flake8
+        uv pip install types-requests
+
+      # 7.2 Install missing stub packages
+    - name: Install missing type stubs
       run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=119 --statistics --config=setup.cfg
+        uv run mypy --install-types --non-interactive .
+
+      # 8. Run Ruff Linter and show all errors
+    - name: Run Ruff Linter
+      run: |
+        echo "${{ needs.check.outputs.changed_files }}" | xargs uv run ruff check --output-format=github --config=pyproject.toml
+
+      # 9. Run Mypy Type Checking and show all errors
+    - name: Run Mypy Type Checking
+      run: |
+        echo "${{ needs.check.outputs.changed_files }}" | xargs uv run mypy --config-file=pyproject.toml
+
+      # 10. Run Pytest
+    - name: Run Pytest
+      run: |
+        uv run pytest --maxfail=10 --disable-warnings --tb=short
