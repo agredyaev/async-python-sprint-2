@@ -38,6 +38,15 @@ class FileOperation(StrEnum):
     APPEND = auto()
 
 
+class HttpOperation(StrEnum):
+    """Available HTTP operations."""
+
+    GET = auto()
+    POST = auto()
+    PUT = auto()
+    DELETE = auto()
+
+
 class MetricType(StrEnum):
     """Types of metrics collected during task execution."""
 

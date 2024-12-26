@@ -1,10 +1,9 @@
-from typing import Any
-
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.helpers import get_current_timestamp
 from src.schemas.enums import FileOperation, TaskPriority, TaskType
 from src.schemas.mixins import CreatedAtMixin, UpdatedAtMixin, UUIDMixin
 
@@ -30,14 +29,13 @@ class TaskConfig(TaskBase, UUIDMixin):
     priority: TaskPriority = Field(default=TaskPriority.MEDIUM, description="Task execution priority")
     dependencies: list[UUID] = Field(default_factory=list, description="List of dependent task IDs")
     timeout: float = Field(default=60.0, ge=0, description="Execution timeout in seconds")
-    max_retries: int = Field(default=0, ge=0, description="Maximum number of retry attempts")
+    max_retries: int = Field(default=3, ge=0, description="Maximum number of retry attempts")
     start_time: datetime | None = Field(default=None, description="Scheduled start time")
-    task_specific_config: dict[str, Any] = Field(default_factory=dict, description="Task-specific configuration")
 
     @model_validator(mode="after")
     def validate_start_time(self) -> "TaskConfig":
         """Validates that start_time is not in the past."""
-        if self.start_time and self.start_time < datetime.now(tz=UTC):
+        if self.start_time and self.start_time < get_current_timestamp():
             raise ValueError("Start time cannot be in the past")
         return self
 

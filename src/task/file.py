@@ -2,7 +2,9 @@ from collections.abc import Callable, Generator
 from pathlib import Path
 
 from src.core.exceptions import TaskError
-from src.schemas import Context, FileOperation, FileTaskConfig
+from src.schemas.contex import Context
+from src.schemas.enums import FileOperation
+from src.schemas.task import FileTaskConfig
 from src.task.base import BaseTask
 
 type PathStr = str
@@ -13,12 +15,6 @@ class FileTask(BaseTask):
     """Implementation of file system operations task."""
 
     def __init__(self, config: FileTaskConfig) -> None:
-        """
-        Initialize file task.
-
-        Args:
-            config: File task configuration
-        """
         super().__init__(config)
         self._config: FileTaskConfig = config
         self._operations: dict[FileOperation, OperationFunc] = {
@@ -47,39 +43,53 @@ class FileTask(BaseTask):
             context.data["file_path"] = path
             context.data["operation"] = operation.value
 
-        except TaskError as e:
+        except Exception as e:
             context.data["error"] = str(e)
-            raise
+            raise TaskError(str(e)) from e
 
     def _read_file(self, path: PathStr, context: Context) -> Generator[None, None, None]:
-        with Path(path).open() as f:
-            content = f.read()
-            yield
-            context.results[str(self.task_id)] = content
+        try:
+            with Path(path).open() as f:
+                content = f.read()
+                yield
+                context.results[str(self.task_id)] = content
+        except OSError as e:
+            raise TaskError(f"Error reading file: {e}") from e
 
-    def _write_file(self, path: PathStr) -> Generator[None, None, None]:
-        yield
-        with Path(path).open("w") as f:
-            f.write(self._config.content or "")
-            yield
-
-    def _append_file(self, path: PathStr) -> Generator[None, None, None]:
-        yield
-        with Path(path).open("a") as f:
-            f.write(self._config.content or "")
-            yield
-
-    @staticmethod
-    def _delete_file(path: PathStr) -> Generator[None, None, None]:
-        if Path(path).exists():
-            yield
-            Path(path).unlink()
-            yield
-
-    def _create_file(self, path: PathStr) -> Generator[None, None, None]:
-        if not Path(path).exists():
+    def _write_file(self, path: PathStr, context: Context) -> Generator[None, None, None]:
+        try:
             yield
             with Path(path).open("w") as f:
-                if self._config.content:
-                    f.write(self._config.content)
+                f.write(self._config.content or "")
+            yield
+        except OSError as e:
+            raise TaskError(f"Error writing file: {e}") from e
+
+    def _append_file(self, path: PathStr, context: Context) -> Generator[None, None, None]:
+        try:
+            yield
+            with Path(path).open("a") as f:
+                f.write(self._config.content or "")
+            yield
+        except OSError as e:
+            raise TaskError(f"Error appending to file: {e}") from e
+
+    def _delete_file(self, path: PathStr, context: Context) -> Generator[None, None, None]:
+        try:
+            if Path(path).exists():
                 yield
+                Path(path).unlink()
+                yield
+        except OSError as e:
+            raise TaskError(f"Error deleting file: {e}") from e
+
+    def _create_file(self, path: PathStr, context: Context) -> Generator[None, None, None]:
+        try:
+            if not Path(path).exists():
+                yield
+                with Path(path).open("w") as f:
+                    if self._config.content:
+                        f.write(self._config.content)
+                yield
+        except OSError as e:
+            raise TaskError(f"Error creating file: {e}") from e

@@ -7,15 +7,20 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from src.core.exceptions import BaseTaskError, TaskMaxRetriesError
 from src.helpers import get_current_timestamp
-from src.schemas import Context, TaskConfig, TaskMetrics, TaskState
-from src.core.exceptions import BaseTaskError
+from src.protocols.task import TaskProtocol
+from src.schemas.contex import Context
+from src.schemas.enums import TaskState
+from src.schemas.task import TaskConfig, TaskMetrics
+
 
 class TaskError(BaseModel):
     message: str
     timestamp: datetime
 
-class BaseTask(ABC):
+
+class BaseTask(ABC, TaskProtocol):
     """Base implementation of task functionality."""
 
     DEFAULT_STATE: ClassVar[TaskState] = TaskState.CREATED
@@ -28,6 +33,7 @@ class BaseTask(ABC):
         self._start_time: datetime | None = None
         self._end_time: datetime | None = None
         self._error: TaskError | None = None
+        self._retry_count: int = 0
 
     @property
     def task_id(self) -> UUID:
@@ -49,7 +55,13 @@ class BaseTask(ABC):
         """Get task execution metrics."""
         return self._metrics
 
-    def get_state(self) -> TaskState:
+    @property
+    def config(self) -> TaskConfig:
+        """Get task configuration."""
+        return self._config
+
+    @property
+    def state(self) -> TaskState:
         """Get current task state."""
         return self._state
 
@@ -67,14 +79,21 @@ class BaseTask(ABC):
         Returns:
             Generator yielding None on each execution step
         """
-        try:
-            self._start_execution()
-            yield from self._do_execute(context)
-            self._complete_execution()
-
-        except BaseTaskError as e:
-            self._handle_error(e)
-            raise
+        while True:
+            try:
+                self._start_execution()
+                yield from self._do_execute(context)
+                self._complete_execution()
+                break
+            except BaseTaskError as e:
+                if self._retry_count < self._config.max_retries:
+                    self._retry_count += 1
+                    self._state = TaskState.RETRY_PENDING
+                    self._metrics.retry_count = self._retry_count
+                    continue
+                else:
+                    self._handle_error(e)
+                    raise TaskMaxRetriesError("Task max retries exceeded") from None
         yield None
 
     @abstractmethod
@@ -95,6 +114,7 @@ class BaseTask(ABC):
         self._start_time = get_current_timestamp()
         self._state = TaskState.RUNNING
         self._update_metrics()
+        self._error = None
 
     def _complete_execution(self) -> None:
         """Handle successful task completion."""

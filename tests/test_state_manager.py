@@ -1,96 +1,149 @@
+import os
+
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import mock_open
+from uuid import UUID, uuid4
 
 import pytest
 
 from polyfactory.factories.pydantic_factory import ModelFactory
 from pytest_mock import MockerFixture
 
-from src.core.exceptions import StateFileError, StateValidationError
-from src.schemas import Context
-from src.state import FileStateManager
+from src.core.exceptions import StateLoadError, StateLockError, StateNotFoundError, StateSaveError
+from src.schemas import StateData, TaskState, TaskStateData, TaskStates
 
 
-class ContextFactory(ModelFactory[Context]):
+class BaseFactory:
     __random_seed__ = 1
 
 
+class TaskStateDataFactory(BaseFactory, ModelFactory[TaskStateData]): ...
+
+
+class StateDataFactory(BaseFactory, ModelFactory[StateData]): ...
+
+
 @pytest.fixture
-def state_manager(mocker: MockerFixture) -> FileStateManager:
-    mocker.patch("src.core.settings.settings.scheduler.state_file_path", new=Path("/fake/path/state.lock"))
+def state_manager(mocker: MockerFixture):
+    mocker.patch("pathlib.Path.mkdir")
+    mocker.patch("pathlib.Path.exists", return_value=True)
+    mocker.patch("os.open", return_value=999)
+    mocker.patch("os.close")
+    mocker.patch("fcntl.flock")
+
+    from src.state.manager import FileStateManager
+
     return FileStateManager()
 
 
-def test_save_state_to_lock_file(state_manager: FileStateManager, mocker: MockerFixture):
-    context = ContextFactory.build()
-    mock_open_func = mock_open()
-    mocker.patch("builtins.open", mock_open_func)
-
-    state_manager.save_state(context)
-
-    mock_open_func.assert_called_once_with(Path("/fake/path/state.lock"), "wb")
-    mock_open_func().write.assert_called_once()
+@pytest.fixture
+def mock_timestamp(mocker):
+    return mocker.patch("src.helpers.get_current_timestamp", return_value=datetime.now(tz=UTC))
 
 
-def test_load_state_from_lock_file(state_manager: FileStateManager, mocker: MockerFixture):
-    context = ContextFactory.build()
-    serialized_context = context.model_dump(mode="json").encode("utf-8")
+class TestFileStateManager:
+    def test_init(self, state_manager):
+        assert isinstance(state_manager._states, TaskStates) or isinstance(
+            state_manager._states, dict
+        ), "States should be of type TaskStates or dict"
+        assert isinstance(state_manager._dirty, set), "Dirty should be of type set"
+        assert state_manager._last_save is None, "Last save should be None"
 
-    mock_open_func = mock_open(read_data=serialized_context)
-    mocker.patch("builtins.open", mock_open_func)
+    def test_context_manager(self, state_manager, mocker):
+        mock_save = mocker.patch.object(state_manager, "save")
+        with state_manager:
+            state_manager._dirty.add(uuid4())
+        mock_save.assert_called_once()
 
-    loaded_context = state_manager.load_state()
+    def test_validate_version_success(self, state_manager):
+        state_manager._validate_version(1)
 
-    assert loaded_context == context
+    def test_validate_version_failure(self, state_manager):
+        with pytest.raises(StateLoadError):
+            state_manager._validate_version(999)
 
+    def test_update_state(self, state_manager, mock_timestamp, mocker):
+        task_id = uuid4()
+        state = TaskState.RETRY_PENDING
 
-def test_load_state_lock_file_not_found(state_manager: FileStateManager, mocker: MockerFixture):
-    mocker.patch("pathlib.Path.exists", return_value=False)
+        for _ in state_manager.update(task_id, state):
+            continue
 
-    loaded_context = state_manager.load_state()
+        assert state_manager.states.items[task_id].state == state, "State should be updated"
+        assert state_manager._get_state.cache_info().currsize == 0, "Cache should be cleared"
 
-    assert loaded_context is None
+    def test_get_state(self, state_manager):
+        task_id = uuid4()
+        state_data = TaskStateDataFactory.build()
+        state_manager._states.items[task_id] = state_data
 
+        result = next(state_manager.get(task_id))
+        assert result == state_data
 
-def test_save_state_lock_file_error(state_manager: FileStateManager, mocker: MockerFixture):
-    context = ContextFactory.build()
+    def test_get_state_not_found(self, state_manager):
+        with pytest.raises(StateNotFoundError):
+            next(state_manager.get(uuid4()))
 
-    mock_open_func = mock_open()
-    mock_open_func.side_effect = OSError("Unable to write to file")
+    def test_cleanup(self, state_manager, mock_timestamp, mocker):
+        save_mock = mocker.patch.object(state_manager, "save")
 
-    mocker.patch("builtins.open", mock_open_func)
+        old_task_id = uuid4()
+        old_timestamp = datetime.now(tz=UTC) - timedelta(days=2)
+        state_manager._states.items[old_task_id] = TaskStateData(state=TaskState.COMPLETED, updated=old_timestamp)
 
-    with pytest.raises(StateFileError, match="Unable to write to file"):
-        state_manager.save_state(context)
+        new_task_id = uuid4()
+        state_manager._states.items[new_task_id] = TaskStateData(state=TaskState.PENDING, updated=datetime.now(tz=UTC))
 
+        cleanup_before = datetime.now(tz=UTC) - timedelta(days=1)
+        for _ in state_manager.cleanup(cleanup_before):
+            continue
 
-def test_load_state_lock_file_error(state_manager: FileStateManager, mocker: MockerFixture):
-    mock_open_func = mock_open()
-    mock_open_func.side_effect = OSError("Unable to read file")
+        assert old_task_id not in state_manager.states.items, "Old task should be removed"
+        assert new_task_id in state_manager.states.items, "New task should not be removed"
+        save_mock.assert_called_once()
 
-    mocker.patch("builtins.open", mock_open_func)
+    def test_acquire_lock(self, state_manager, mocker):
+        mock_open = mocker.patch("os.open", return_value=999)
+        mock_flock = mocker.patch("fcntl.flock")
 
-    with pytest.raises(StateFileError, match="Unable to read file"):
-        state_manager.load_state()
+        fd = state_manager._acquire_lock(Path("/tmp/test_acquire.lock"))
+        assert fd == 999, "File descriptor should be returned"
+        mock_flock.assert_called_once()
 
+    def test_acquire_lock_error(self, state_manager, mocker):
+        mocker.patch("os.open", side_effect=OSError)
 
-def test_load_state_invalid_data_in_lock_file(state_manager: FileStateManager, mocker: MockerFixture):
-    mock_open_func = mock_open(read_data=b"{invalid_binary_data}")
+        with pytest.raises(StateLockError):
+            state_manager._acquire_lock(Path("/tmp/test.lock"))
 
-    mocker.patch("builtins.open", mock_open_func)
+    def test_save_state(self, state_manager, mocker):
+        mock_write = mocker.patch("pathlib.Path.write_text")
+        mock_replace = mocker.patch("pathlib.Path.replace")
 
-    with pytest.raises(StateValidationError, match="Invalid data format"):
-        state_manager.load_state()
+        state_manager._dirty.add(uuid4())
 
+        for _ in state_manager.save():
+            continue
 
-def test_save_and_load_state_integration_with_lock_file(state_manager: FileStateManager, mocker: MockerFixture):
-    context = ContextFactory.build()
+        assert mock_write.called, "File should be written"
+        assert mock_replace.called, "File should be replaced"
+        assert not state_manager._dirty, "Dirty set should be cleared"
 
-    state_manager.save_state(context)
+    def test_load_state(self, state_manager, mocker):
+        test_data = StateDataFactory.build()
+        test_data.version = 1
+        mocker.patch("pathlib.Path.read_text", return_value=test_data.model_dump_json())
 
-    mock_open_func = mock_open(read_data=context.model_dump(mode="json").encode("utf-8"))
-    mocker.patch("builtins.open", mock_open_func)
+        for _ in state_manager.load():
+            continue
 
-    loaded_context = state_manager.load_state()
+        assert state_manager.states == test_data.states
 
-    assert loaded_context == context
+    def test_should_save(self, state_manager, mock_timestamp):
+        assert not state_manager._should_save(), "Should not save if dirty set is empty"
+
+        state_manager._dirty.add(uuid4()), "Dirty set should not be empty"
+        assert state_manager._should_save(), "Should save if dirty set is not empty"
+
+        state_manager._last_save = datetime.now(tz=UTC) - timedelta(seconds=61)
+        assert state_manager._should_save(), "Should save if last save is older than 60 seconds"

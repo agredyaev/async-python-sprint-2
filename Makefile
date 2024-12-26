@@ -25,6 +25,11 @@ check:
 	@git add .
 	@pre-commit run
 
+.PHONY: check-all
+check-all:
+	@git add .
+	@pre-commit run --all
+
 .PHONY: up
 up: env setup sync
 

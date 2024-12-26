@@ -2,8 +2,9 @@ from collections.abc import Generator
 
 import requests
 
-from src.schemas import Context, HttpTaskConfig
+from src.schemas.contex import Context
 from src.schemas.response import ResponseData
+from src.schemas.task import HttpTaskConfig
 from src.task.base import BaseTask
 
 
@@ -27,17 +28,17 @@ class HttpTask(BaseTask):
         Args:
             context: Task execution context
         """
-        yield  # Yield before request to allow interruption
+        yield
 
         with requests.Session() as session:
-            yield  # After session creation
+            yield
 
             try:
                 response = self._make_request(session)
-                yield  # After request
+                yield
 
                 response.raise_for_status()
-                yield  # After raise_for_status
+                yield
 
                 self._store_results(context, response)
 

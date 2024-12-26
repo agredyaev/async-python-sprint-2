@@ -6,172 +6,188 @@ skinparam classAttributeIconSize 0
 ' Protocols
 package "Protocols" {
     interface "TaskProtocol" as TaskP {
+        +task_id: UUID
+        +priority: int
+        +dependencies: list[UUID]
+        +metrics: TaskMetrics
         +execute(context: Context)
         +get_state(): TaskState
         +set_state(state: TaskState)
-        +get_id(): str
-        +get_priority(): int
-        +get_dependencies(): List[str]
     }
 
     interface "TaskFactoryProtocol" as TaskFactoryP {
         +create_task(config: TaskConfig): TaskProtocol
-        +register_task_type(task_type: str, task_class: Type[TaskProtocol])
+        +register_task_type(task_type: TaskType, task_class: Type[TaskProtocol], config_class: Type[TaskConfig])
+        +unregister_task_type(task_type: TaskType)
+        +get_registered_types(): list[TaskType]
     }
 
     interface "ContextManagerProtocol" as ContextManagerP {
-        +create_context(pipeline_id: str): Context
+        +create_context(pipeline_id: UUID): Context
+        +get_context(task_id: UUID): Context
         +update_context(context: Context)
-        +get_context(task_id: str): Context
-        +cleanup_context(pipeline_id: str)
-        +merge_contexts(source: Context, target: Context)
+        +cleanup_context(pipeline_id: UUID)
+        +merge_contexts(source: Context, target: Context): Context
+        +associate_task(task_id: UUID, context_id: UUID)
     }
 
     interface "StateManagerProtocol" as StateManagerP {
         +save_state()
         +load_state()
-        +update_task_state(task_id: str, state: TaskState)
-        +get_task_state(task_id: str): TaskState
+        +update_task_state(task_id: UUID, state: TaskState)
+        +get_task_state(task_id: UUID): TaskState
         +cleanup_states(older_than: datetime)
     }
 
     interface "TaskPoolProtocol" as TaskPoolP {
         +add_task(task: TaskProtocol)
-        +get_next_task(): TaskProtocol
-        +remove_task(task_id: str)
-        +get_running_tasks(): List[TaskProtocol]
-        +get_pending_tasks(): List[TaskProtocol]
+        +get_next_task(): TaskProtocol | None
+        +remove_task(task_id: UUID)
+        +get_running_tasks(): list[TaskProtocol]
+        +get_pending_tasks(): list[TaskProtocol]
+        +cleanup_completed(older_than: datetime)
     }
 }
 
-    ' Base classes and implementations
-    abstract class "BaseTask" as BaseTask {
-        #task_id: str
-        #config: TaskConfig
-        #state: TaskState
-        #priority: int
-        #dependencies: List[str]
-        #retry_count: int
-        #max_retries: int
-        #timeout: float
-        #start_time: Optional[datetime]
-        --
-        +__init__(config: TaskConfig)
-        #_validate_config()
-        #_check_dependencies()
-        #_update_state(new_state: TaskState)
-        #{abstract} _do_execute(context: Context)
-        +execute(context: Context)
-        +get_state(): TaskState
-        +set_state(state: TaskState)
-    }
-
-
-class "FileTask" as FileTask {
-    -file_path: Path
-    -operation: FileOperation
+' Base classes and implementations
+abstract class "BaseTask" as BaseTask {
+    #_config: TaskConfig
+    #_state: TaskState
+    #_metrics: TaskMetrics
+    #_start_time: datetime | None
+    #_end_time: datetime | None
+    #_error: TaskError | None
     --
     +__init__(config: TaskConfig)
+    +execute(context: Context)
+    #{abstract} _do_execute(context: Context)
+    #_start_execution()
+    #_complete_execution()
+    #_handle_error(error: Exception)
+    #_update_metrics()
+}
+
+class "FileTask" as FileTask {
+    -_config: FileTaskConfig
+    -_operations: dict[FileOperation, OperationFunc]
+    --
+    +__init__(config: FileTaskConfig)
     #_do_execute(context: Context)
-    -_validate_path()
-    -_handle_file_operation()
+    -_read_file(path: str, context: Context)
+    -_write_file(path: str)
+    -_append_file(path: str)
+    -_delete_file(path: str)
+    -_create_file(path: str)
 }
 
 class "HttpTask" as HttpTask {
-    -url: str
-    -method: str
-    -headers: Dict[str, str]
-    -timeout: float
+    -_config: HttpTaskConfig
     --
-    +__init__(config: TaskConfig)
+    +__init__(config: HttpTaskConfig)
     #_do_execute(context: Context)
-    -_validate_url()
-    -_make_request()
+    -_make_request(session: Session)
+    -_store_results(context: Context, response: Response)
 }
 
 class "TaskFactory" as TaskFactory {
-    -_task_types: Dict[str, Type[TaskProtocol]]
+    -_task_types: dict[TaskType, TaskTypeConfig]
+    -_lock: RLock
     --
     +__init__()
     +create_task(config: TaskConfig): TaskProtocol
-    +register_task_type(task_type: str, task_class: Type[TaskProtocol])
-    -_validate_task_type(task_type: str)
+    +register_task_type(task_type: TaskType, task_class: Type[TaskProtocol], config_class: Type[TaskConfig])
+    -_register_default_tasks()
+    -_create_task_internal(config: TaskConfig): TaskProtocol
 }
 
 class "ContextManager" as ContextManager {
-    -_contexts: Dict[str, Context]
     -_lock: RLock
+    -_contexts: dict[UUID, Context]
+    -_task_contexts: dict[UUID, UUID]
+    -_pipeline_contexts: dict[UUID, UUID]
+    -_context_versions: dict[UUID, int]
+    -_shared_data: dict[str, Any]
     --
     +__init__()
-    +create_context(pipeline_id: str): Context
-    +update_context(context: Context)
-    +get_context(task_id: str): Context
-    -_validate_context(context: Context)
+    +all implemented ContextManagerProtocol methods
+    -_record_changes(old_context: Context, new_context: Context)
+    -_diff_dicts(old: dict, new: dict, exclude: set[str])
 }
 
 class "FileStateManager" as FileStateManager {
+    -_config: SchedulerConfig
+    -_lock: RLock
+    -_states: dict[UUID, TaskState]
+    -_modified_states: set[UUID]
     -_state_file: Path
     -_lock_file: Path
-    -_lock: RLock
+    -_last_save_time: datetime | None
     --
-    +__init__(state_file: Path)
-    +save_state()
-    +load_state()
-    -_acquire_lock()
-    -_release_lock()
+    +__init__()
+    +all implemented StateManagerProtocol methods
+    -_file_lock(timeout: float)
+    -_cleanup_memory_states(older_than: datetime)
+    -_cleanup_backup_files(older_than: datetime)
+    -_create_backup()
     -_validate_state_file()
 }
 
 class "TaskPool" as TaskPool {
-    -_max_concurrent: int
-    -_running_tasks: Dict[str, TaskProtocol]
-    -_pending_tasks: PriorityQueue[TaskProtocol]
+    -_config: SchedulerConfig
     -_lock: RLock
-    --
-    +__init__(max_concurrent: int)
-    +add_task(task: TaskProtocol)
-    +get_next_task(): TaskProtocol
-    -_check_dependencies(task: TaskProtocol)
-    -_cleanup_completed()
-}
-
-' Main Scheduler
-class "Scheduler" as Scheduler {
-    -task_pool: TaskPoolProtocol
-    -context_manager: ContextManagerProtocol
-    -state_manager: StateManagerProtocol
-    -task_factory: TaskFactoryProtocol
-    -_is_running: bool
-    -_lock: RLock
+    -_pending_tasks: list[PrioritizedTask]
+    -_running_tasks: dict[UUID, TaskProtocol]
+    -_completed_tasks: dict[UUID, TaskProtocol]
+    -_failed_tasks: dict[UUID, TaskProtocol]
+    -_task_dependencies: defaultdict[UUID, set[UUID]]
+    -_dependent_tasks: defaultdict[UUID, set[UUID]]
     --
     +__init__()
-    +schedule_task(config: TaskConfig)
-    +schedule_pipeline(pipeline_config: PipelineConfig)
-    +run()
-    +stop()
-    -_process_task(task: TaskProtocol)
-    -_handle_task_completion(task: TaskProtocol)
+    +all implemented TaskPoolProtocol methods
+    -_check_task_exists(task_id: UUID)
+    -_can_execute_task(task: TaskProtocol): bool
 }
 
-' Models and DTOs
+class "Scheduler" as Scheduler {
+    -_task_pool: TaskPoolProtocol
+    -_context_manager: ContextManagerProtocol
+    -_state_manager: StateManagerProtocol
+    -_task_factory: TaskFactoryProtocol
+    -_config: SchedulerConfig
+    -_lock: RLock
+    -_status: SchedulerStatus
+    -_active_coroutines: deque[Generator]
+    --
+    +__init__()
+    +scheduler_loop()
+    +maintenance_loop()
+    +run()
+    +stop()
+    +schedule_task(config: TaskConfig): UUID
+    +schedule_pipeline(config: Pipeline): UUID
+    -_process_task(task: TaskProtocol)
+    -_process_coroutines()
+    -_run_maintenance(current_time: datetime)
+}
+
+' Models
 package "Schemas" {
     class "TaskConfig" as TaskConfig {
-        +task_id: str
-        +task_type: str
-        +priority: int
-        +dependencies: List[str]
+        +task_type: TaskType
+        +priority: TaskPriority
+        +dependencies: list[UUID]
         +timeout: float
         +max_retries: int
-        +start_time: Optional[datetime]
-        +task_specific_config: Dict
+        +start_time: datetime | None
+        +task_specific_config: dict[str, Any]
     }
 
     class "Context" as Context {
-        +context_id: str
-        +pipeline_id: str
-        +data: Dict[str, Any]
-        +results: Dict[str, Any]
-        +metadata: Dict[str, Any]
+        +id: UUID
+        +pipeline_id: UUID | None
+        +data: dict[str, Any]
+        +results: dict[str, Any]
+        +metadata: ContextMetadata
         +version: int
         +created_at: datetime
         +updated_at: datetime
@@ -186,19 +202,19 @@ package "Schemas" {
         RETRY_PENDING
     }
 
-    class "PipelineConfig" as PipelineConfig {
-        +pipeline_id: str
-        +tasks: List[TaskConfig]
+    class "Pipeline" as Pipeline {
+        +id: UUID
+        +tasks: list[TaskConfig]
         +max_parallel: int
         +timeout: float
+        +task_count: int
     }
 }
 
-' Dependencies and relationships
+' Relationships
 TaskP <|.. BaseTask
 BaseTask <|-- FileTask
 BaseTask <|-- HttpTask
-
 
 TaskFactoryP <|.. TaskFactory
 ContextManagerP <|.. ContextManager
@@ -209,8 +225,6 @@ Scheduler o-- TaskPoolP
 Scheduler o-- ContextManagerP
 Scheduler o-- StateManagerP
 Scheduler o-- TaskFactoryP
-TaskFactoryP o-- TaskP
-TaskPoolP o-- TaskP
 
 TaskFactory ..> TaskConfig
 TaskFactory ..> BaseTask
@@ -224,5 +238,5 @@ TaskPool ..> TaskState
 ContextManager ..> Context
 FileStateManager ..> TaskState
 
-PipelineConfig ..> TaskConfig
+Pipeline ..> TaskConfig
 @enduml
