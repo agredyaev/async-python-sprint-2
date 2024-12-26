@@ -1,5 +1,4 @@
-from idlelib.configdialog import changes
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -9,7 +8,7 @@ from pytest_mock import MockerFixture
 from src.context import ContextManager
 from src.core.exceptions import ContextNotFoundError, ContextVersionError
 from src.helpers import get_current_timestamp
-from src.schemas import Context, TaskConfig
+from src.schemas import Context
 
 
 class BaseFactory:

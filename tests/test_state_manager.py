@@ -1,15 +1,13 @@
-import os
-
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
 from polyfactory.factories.pydantic_factory import ModelFactory
 from pytest_mock import MockerFixture
 
-from src.core.exceptions import StateLoadError, StateLockError, StateNotFoundError, StateSaveError
+from src.core.exceptions import StateLoadError, StateLockError, StateNotFoundError
 from src.schemas import StateData, TaskState, TaskStateData, TaskStates
 
 

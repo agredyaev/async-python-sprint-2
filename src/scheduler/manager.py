@@ -16,46 +16,43 @@ logger = get_logger("scheduler")
 
 
 class Scheduler:
-    """Scheduler class."""
-
-    __slots__ = (
-        "_completed_tasks",
-        "_config",
-        "_context_manager",
-        "_failed_tasks",
-        "_lock",
-        "_state_manager",
-        "_tasks",
-    )
+    """Task scheduler."""
 
     def __init__(self, context_manager: ContextManagerProtocol, state_manager: StateManagerProtocol) -> None:
         self._context_manager = context_manager
         self._state_manager = state_manager
         self._config = settings.scheduler
         self._lock = RLock()
-        self._tasks: deque[BaseTask] = deque()
+        self._tasks: deque[BaseTask] = deque(maxlen=self._config.max_concurrent_tasks)
         self._completed_tasks: set[UUID] = set()
         self._failed_tasks: set[UUID] = set()
 
     def add_task(self, task: BaseTask) -> None:
         """Add task to the scheduler queue."""
         self._tasks.append(task)
+        context = next(self._context_manager.create_context())
+        next(self._context_manager.associate_task(task.task_id, context.id))
 
     def _can_execute(self, task: BaseTask) -> bool:
-        """Check if task can be executed."""
-        if task.config.start_time and task.config.start_time > get_current_timestamp():
-            return False
+        """Checks if all dependencies are completed and if start time is in the future."""
         for dependency in task.dependencies:
             if dependency in self._failed_tasks:
                 task.set_state(TaskState.FAILED)
+                self._failed_tasks.add(task.task_id)
                 return False
             if dependency not in self._completed_tasks:
                 return False
-        return True
+        return not (task.config.start_time and task.config.start_time > get_current_timestamp())
 
     def _process_task(self, task: BaseTask) -> Generator[None, None, None]:
-        """Process task execution."""
-        yield None
+        """Process task execution. Moves task to completed or failed states."""
+        context = self._context_manager.get_context(task.task_id)
+        yield from task.execute(context)
+        match task.state:
+            case TaskState.COMPLETED:
+                self._completed_tasks.add(task.task_id)
+            case TaskState.FAILED:
+                self._failed_tasks.add(task.task_id)
 
     def run(self) -> Generator[None, None, None]:
         """Run event loop."""
@@ -63,14 +60,14 @@ class Scheduler:
             task = self._tasks.popleft()
             if self._can_execute(task):
                 yield from self._process_task(task)
-            else:
+            elif task.state != TaskState.FAILED:
                 self._tasks.append(task)
 
     def __enter__(self) -> "Scheduler":
         """Logic when the scheduler starts."""
         logger.info("Starting scheduler.")
         with self._lock:
-            self._state_manager.load()
+            next(self._state_manager.load())
         logger.info("Loaded state from storage.")
         return self
 
@@ -79,7 +76,7 @@ class Scheduler:
     ) -> None:
         """Logic when the scheduler exits."""
         with self._lock:
-            self._state_manager.save()
+            next(self._state_manager.save())
         logger.info("Saved state to storage.")
         logger.info("Scheduler stopped")
         if exc_val:

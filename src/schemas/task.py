@@ -4,7 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.helpers import get_current_timestamp
-from src.schemas.enums import FileOperation, TaskPriority, TaskType
+from src.schemas.enums import FileOperation, HttpOperation, TaskPriority, TaskType
 from src.schemas.mixins import CreatedAtMixin, UpdatedAtMixin, UUIDMixin
 
 
@@ -48,19 +48,12 @@ class FileTaskConfig(TaskConfig):
     file_path: str = Field(..., min_length=1, description="Target file path")
     content: str | None = Field(None, description="Content for write operations")
 
-    @model_validator(mode="after")
-    def validate_content_required(self) -> "FileTaskConfig":
-        """Validates content presence for write operations."""
-        if self.operation in [FileOperation.WRITE, FileOperation.APPEND] and self.content is None:
-            raise ValueError("Content is required for write and append operations")
-        return self
-
 
 class HttpTaskConfig(TaskConfig):
     """Configuration for HTTP request tasks."""
 
     task_type: TaskType = Field(TaskType.HTTP, frozen=True)
     url: str = Field(..., description="Target URL for HTTP request")
-    method: str = Field(default="GET", description="HTTP method")
+    method: HttpOperation = Field(default=HttpOperation.GET, description="HTTP method")
     headers: dict[str, str] = Field(default_factory=dict, description="HTTP headers")
     timeout: float = Field(default=30.0, ge=0, description="HTTP request timeout")
