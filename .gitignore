@@ -111,5 +111,6 @@ cython_debug/
 mypy_cache/
 ruff_cache/
 
-output.*
-
+output.txt
+tmp*
+test_state
