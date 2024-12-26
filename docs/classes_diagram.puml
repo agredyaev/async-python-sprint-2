@@ -1,0 +1,220 @@
+@startuml
+skinparam packageStyle rectangle
+skinparam componentStyle uml2
+skinparam classAttributeIconSize 0
+
+' Protocols
+package "Protocols" {
+    interface "TaskProtocol" as TaskP {
+        +task_id: UUID
+        +priority: int
+        +dependencies: list[UUID]
+        +metrics: TaskMetrics
+        +config: TaskConfig
+        +state: TaskState
+        +execute(context: Context): Generator[None, None, None]
+        +set_state(state: TaskState)
+    }
+
+    interface "TaskFactoryProtocol" as TaskFactoryP {
+        +create_task(config: TaskConfig): Generator[TaskProtocol, None, None]
+    }
+
+    interface "ContextManagerProtocol" as ContextManagerP {
+        +create_context(pipeline_id: UUID | None): Generator[Context, None, None]
+        +get_context(task_id: UUID): Context
+        +update_context(context: Context): Generator[None, None, None]
+        +cleanup_context(pipeline_id: UUID): Generator[None, None, None]
+        +merge_contexts(source: Context, target: Context): Generator[Context, None, None]
+        +associate_task(task_id: UUID, context_id: UUID): Generator[None, None, None]
+    }
+
+    interface "StateManagerProtocol" as StateManagerP {
+        +save(): Generator[None, None, None]
+        +load(): Generator[None, None, None]
+        +update(task_id: UUID, state: TaskState): Generator[None, None, None]
+        +get(task_id: UUID): Generator[TaskStateData, None, None]
+        +cleanup(older_than: datetime): Generator[None, None, None]
+    }
+}
+
+' Base classes and implementations
+abstract class "BaseTask" as BaseTask {
+    #_config: TaskConfig
+    #_state: TaskState
+    #_metrics: TaskMetrics
+    #_start_time: datetime | None
+    #_end_time: datetime | None
+    #_error: TaskError | None
+    #_retry_count: int
+    --
+    +__init__(config: TaskConfig)
+    +execute(context: Context): Generator[None, None, None]
+    #{abstract} _do_execute(context: Context): Generator[None, None, None]
+    #_start_execution()
+    #_complete_execution()
+    #_handle_error(error: Exception)
+    #_update_metrics()
+}
+
+class "FileTask" as FileTask {
+    -_config: FileTaskConfig
+    -_operations: dict[FileOperation, OperationFunc]
+    --
+    +__init__(config: FileTaskConfig)
+    #_do_execute(context: Context): Generator[None, None, None]
+    -_read_file(path: PathStr, context: Context): Generator[None, None, None]
+    -_write_file(path: PathStr, context: Context): Generator[None, None, None]
+    -_append_file(path: PathStr, context: Context): Generator[None, None, None]
+    -_delete_file(path: PathStr, context: Context): Generator[None, None, None]
+    -_create_file(path: PathStr, context: Context): Generator[None, None, None]
+}
+
+class "HttpTask" as HttpTask {
+    -_config: HttpTaskConfig
+    --
+    +__init__(config: HttpTaskConfig)
+    #_do_execute(context: Context): Generator[None, None, None]
+    -_make_request(session: Session): Response
+    -_store_results(context: Context, response: Response)
+}
+
+class "TaskRegistry" as TaskRegistry {
+    -task_types: dict[TaskType, TaskImplementation]
+    --
+    +create_task(config: TaskConfig): Generator[BaseTask, None, None]
+}
+
+class "ContextManager" as ContextManager {
+    -_lock: RLock
+    -_contexts: ContextStore
+    -_task_contexts: TaskContextMap
+    -_pipeline_contexts: PipelineContextMap
+    --
+    +__init__()
+    +all implemented ContextManagerProtocol methods
+    -_record_changes(old_context: Context, new_context: Context)
+    -_diff_dicts(old: dict, new: dict): DictDiff
+}
+
+class "FileStateManager" as FileStateManager {
+    -_lock: RLock
+    -_states: TaskStates
+    -_dirty: set[UUID]
+    -_last_save: datetime | None
+    -_state_file: Path
+    -_lock_file: Path
+    --
+    +__init__()
+    +all implemented StateManagerProtocol methods
+    -_acquire_lock(file_path: Path): int
+    -_release_lock(fd: int)
+    -_write_state_file(data: StateData)
+    -_should_save(): bool
+}
+
+class "Scheduler" as Scheduler {
+    -_context_manager: ContextManagerProtocol
+    -_state_manager: StateManagerProtocol
+    -_config: SchedulerConfig
+    -_lock: RLock
+    -_tasks: deque[BaseTask]
+    -_completed_tasks: set[UUID]
+    -_failed_tasks: set[UUID]
+    --
+    +__init__(context_manager: ContextManagerProtocol, state_manager: StateManagerProtocol)
+    +add_task(task: BaseTask)
+    +run(): Generator[None, None, None]
+    -_can_execute(task: BaseTask): bool
+    -_process_task(task: BaseTask): Generator[None, None, None]
+}
+
+' Models
+package "Schemas" {
+    class "TaskConfig" as TaskConfig {
+        +task_type: TaskType
+        +priority: TaskPriority
+        +dependencies: list[UUID]
+        +timeout: float
+        +max_retries: int
+        +start_time: datetime | None
+    }
+
+    class "Context" as Context {
+        +id: UUID
+        +pipeline_id: UUID | None
+        +data: dict[str, Any]
+        +results: dict[str, Any]
+        +metadata: ContextMetadata
+        +version: int
+        +created_at: datetime
+        +updated_at: datetime
+    }
+
+    enum "TaskState" as TaskState {
+        CREATED
+        PENDING
+        RUNNING
+        COMPLETED
+        FAILED
+        RETRY_PENDING
+    }
+
+    class "Pipeline" as Pipeline {
+        +tasks: list[BaseTask]
+        +max_parallel: int
+        +timeout: float
+        +task_count: int
+    }
+
+    class "TaskMetrics" as TaskMetrics {
+        +execution_time: float
+        +retry_count: int
+        +error_count: int
+        +memory_usage: float
+        +last_error: str | None
+    }
+
+    class "FileTaskConfig" as FileTaskConfig {
+        +operation: FileOperation
+        +file_path: str
+        +content: str | None
+    }
+
+    class "HttpTaskConfig" as HttpTaskConfig {
+        +url: str
+        +method: HttpOperation
+        +headers: dict[str, str]
+        +timeout: float
+    }
+}
+
+' Relationships
+TaskP <|.. BaseTask
+BaseTask <|-- FileTask
+BaseTask <|-- HttpTask
+
+TaskFactoryP <|.. TaskRegistry
+ContextManagerP <|.. ContextManager
+StateManagerP <|.. FileStateManager
+
+Scheduler o-- ContextManagerP
+Scheduler o-- StateManagerP
+
+TaskRegistry ..> TaskConfig
+TaskRegistry ..> BaseTask
+TaskRegistry ..> FileTask
+TaskRegistry ..> HttpTask
+
+BaseTask ..> Context
+BaseTask ..> TaskState
+BaseTask ..> TaskMetrics
+
+ContextManager ..> Context
+FileStateManager ..> TaskState
+
+Pipeline ..> BaseTask
+TaskConfig <|-- FileTaskConfig
+TaskConfig <|-- HttpTaskConfig
+
+@enduml

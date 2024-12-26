@@ -1,0 +1,45 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+!define DEVICONS https://raw.githubusercontent.com/tupadr3/plantuml-icon-font-sprites/master/devicons
+!define FONTAWESOME https://raw.githubusercontent.com/tupadr3/plantuml-icon-font-sprites/master/font-awesome-5
+!include DEVICONS/python.puml
+!include FONTAWESOME/tasks.puml
+!include FONTAWESOME/file.puml
+!include FONTAWESOME/network_wired.puml
+
+skinparam roundCorner 20
+skinparam backgroundColor #FFFAF0
+skinparam componentStyle uml2
+
+AddElementTag("storage", $shape=RoundedBoxShape(), $bgColor="#E6E6FA", $fontColor="#000000")
+AddElementTag("component", $shape=RoundedBoxShape(), $bgColor="#F0FFF0", $fontColor="#000000")
+
+System_Boundary(scheduler_system, "Task Scheduling System") {
+    Container(scheduler, "Scheduler", "Python", "Manages task execution and scheduling", $sprite="python", $tags="component")
+    Container(task_registry, "Task Registry", "Python", "Registers and creates task instances", $sprite="tasks", $tags="component")
+    Container(context_manager, "Context Manager", "Python", "Manages task execution contexts", $sprite="python", $tags="component")
+    Container(state_manager, "State Manager", "Python", "Manages task states and persistence", $sprite="python", $tags="component")
+
+    ContainerDb(file_storage, "File Storage", "File System", "Stores task states and results", $sprite="file", $tags="storage")
+}
+
+Rel(scheduler, task_registry, "Creates tasks")
+Rel(scheduler, context_manager, "Manages contexts")
+Rel(scheduler, state_manager, "Manages states")
+Rel(state_manager, file_storage, "Reads/Writes state")
+
+Rel(task_registry, scheduler, "Provides task instances")
+Rel(context_manager, scheduler, "Provides execution context")
+
+Container(file_task, "File Task", "Task Type", "Performs file operations", $sprite="file", $tags="component")
+Container(http_task, "HTTP Task", "Task Type", "Performs HTTP requests", $sprite="network_wired", $tags="component")
+
+Rel(task_registry, file_task, "Creates")
+Rel(task_registry, http_task, "Creates")
+
+Rel(file_task, context_manager, "Updates context")
+Rel(http_task, context_manager, "Updates context")
+
+Rel(scheduler, file_storage, "Saves/Restores state")
+@enduml
