@@ -14,11 +14,14 @@ skinparam componentStyle uml2
 
 AddElementTag("storage", $shape=RoundedBoxShape(), $bgColor="#E6E6FA", $fontColor="#000000")
 AddElementTag("component", $shape=RoundedBoxShape(), $bgColor="#F0FFF0", $fontColor="#000000")
+AddElementTag("task", $shape=RoundedBoxShape(), $bgColor="#f0fbff", $fontColor="#000000")
+AddElementTag("context", $shape=RoundedBoxShape(), $bgColor="#fff0ff", $fontColor="#000000")
+
 
 System_Boundary(scheduler_system, "Task Scheduling System") {
     Container(scheduler, "Scheduler", "Python", "Manages task execution and scheduling", $sprite="python", $tags="component")
-    Container(task_registry, "Task Registry", "Python", "Registers and creates task instances", $sprite="tasks", $tags="component")
-    Container(context_manager, "Context Manager", "Python", "Manages task execution contexts", $sprite="python", $tags="component")
+    Container(task_registry, "Task Registry", "Python", "Registers and creates task instances", $sprite="tasks", $tags="task")
+    Container(context_manager, "Context Manager", "Python", "Manages task execution contexts", $sprite="python", $tags="context")
     Container(state_manager, "State Manager", "Python", "Manages task states and persistence", $sprite="python", $tags="component")
 
     ContainerDb(file_storage, "File Storage", "File System", "Stores task states and results", $sprite="file", $tags="storage")
@@ -32,8 +35,8 @@ Rel(state_manager, file_storage, "Reads/Writes state")
 Rel(task_registry, scheduler, "Provides task instances")
 Rel(context_manager, scheduler, "Provides execution context")
 
-Container(file_task, "File Task", "Task Type", "Performs file operations", $sprite="file", $tags="component")
-Container(http_task, "HTTP Task", "Task Type", "Performs HTTP requests", $sprite="network_wired", $tags="component")
+Container(file_task, "File Task", "Task Type", "Performs file operations", $sprite="file", $tags="task")
+Container(http_task, "HTTP Task", "Task Type", "Performs HTTP requests", $sprite="network_wired", $tags="task")
 
 Rel(task_registry, file_task, "Creates")
 Rel(task_registry, http_task, "Creates")
