@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/python-3.13-blue)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Actions status](https://github.com/agredyaev/async-python-sprint-1/actions/workflows/app-testing.yml/badge.svg)](https://github.com/agredyaev/async-python-sprint-1/actions)
+[![Actions status](https://github.com/agredyaev/async-python-sprint-2/actions/workflows/app-testing.yml/badge.svg)](https://github.com/agredyaev/async-python-sprint-2/actions)
 ![Pydantic](https://img.shields.io/badge/Pydantic-red?logo=pydantic&logoColor=white)
 [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](https://mit-license.org/)
 
